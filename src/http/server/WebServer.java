@@ -137,23 +137,16 @@ public class WebServer {
         try {
             File resource = new File(filename.replace("?=", ""));
             boolean fileExisted = resource.exists();
-            BufferedWriter fileOut = new BufferedWriter(new FileWriter(resource));
-            /*String line = ".";
-            while (line != null && line!= "") {
-                line = in.readLine();
-                fileOut.write(line);
-            }*/
+            BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(resource));
 
-            char[] buf = new char[256];
-            int bytesRead;
-            while (in.available() > 0) {
-                bytesRead = in;
-                out.write(buf, 0, bytesRead);
+            byte[] buffer = new byte[256];
+            while(in.available() > 0) {
+                int nbRead = in.read(buffer);
+                fileOut.write(buffer, 0, nbRead);
             }
             fileOut.flush();
             fileOut.close();
 
-            System.out.println("A");
             if(fileExisted) {
                 out.println(makeHeader("204 No Content", filename));
             } else {
