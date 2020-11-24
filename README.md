@@ -6,6 +6,9 @@
        out : dossier ou sont compilés les fichiers .java
      </li>
      <li>
+       doc : dossier javadoc
+     </li>
+     <li>
        lib : dossier avec le jar du server web
      </li>
      <li>
