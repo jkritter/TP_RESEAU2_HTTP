@@ -36,41 +36,40 @@ public class WebServer {
                 // remote is now the connected socket
                 System.out.println("Connection, sending data.");
                 BufferedInputStream in = new BufferedInputStream(remote.getInputStream());
-                PrintWriter out = new PrintWriter(remote.getOutputStream());
+                BufferedOutputStream out = new BufferedOutputStream(remote.getOutputStream());
 
                 String header = new String();
 
-                int bcur = '\0', bprec = '\0';
+                int currentByte = '\0', previousByte = '\0';
                 boolean newline = false;
-                while((bcur = in.read()) != -1 && !(newline && bprec == '\r' && bcur == '\n')) {
-                    if(bprec == '\r' && bcur == '\n') {
+                while ((currentByte = in.read()) != -1 && !(newline && previousByte == '\r' && currentByte == '\n')) {
+                    if (previousByte == '\r' && currentByte == '\n') {
                         newline = true;
-                    } else if(!(bprec == '\n' && bcur == '\r')) {
+                    } else if (!(previousByte == '\n' && currentByte == '\r')) {
                         newline = false;
                     }
-                    bprec = bcur;
-                    header += (char) bcur;
+                    previousByte = currentByte;
+                    header += (char) currentByte;
                 }
 
                 String[] request = header.split(" ");
                 String requestType = request[0];
                 String requestValue = "";
                 if (request.length > 1) {
-                    requestValue = "." + request[1];
+                    requestValue = "./resources" + request[1].replace("?=", "");
                 }
-
                 if (requestType.equals("GET")) {
                     httpGet(out, requestValue);
-                } else if (requestType.equals("POST")) {
-                    httpPost(out, requestValue);
-                } else if (requestType.equals("HEAD")) {
-                    httpHead(out);
                 } else if (requestType.equals("PUT")) {
                     httpPut(in, out, requestValue);
+                } else if (requestType.equals("POST")) {
+                    httpPost(in, out, requestValue);
+                } else if (requestType.equals("HEAD")) {
+                    httpHead(out);
                 } else if (requestType.equals("DELETE")) {
                     httpDelete(out, requestValue);
                 } else {
-                    out.println(makeHeader("501 Not Implemented", requestValue));
+                    out.write(makeHeader("501 Not Implemented", requestValue).getBytes());
                     out.flush();
                 }
                 remote.close();
@@ -83,125 +82,185 @@ public class WebServer {
     /**
      * GET request.
      *
-     * @param out out stream
+     * @param out      output stream
      * @param filename file to get
      */
-    public void httpGet(PrintWriter out, String filename) {
+    public void httpGet(BufferedOutputStream out, String filename) {
         try {
-            BufferedReader reader = new BufferedReader(new FileReader(filename.replace("?=", "")));
-            out.println(makeHeader("200 OK", filename));
-            char[] buf = new char[256];
-            int bytesRead;
-            while ((bytesRead = reader.read(buf)) > 0) {
-                out.write(buf, 0, bytesRead);
+            File resource = new File(filename);
+            boolean fileExisted = resource.exists();
+            if (fileExisted) {
+                out.write(makeHeader("200 OK", filename).getBytes());
+            } else {
+                out.write(makeHeader("404 Not Found", filename).getBytes());
             }
-            out.flush();
-            reader.close();
+            BufferedInputStream reader = new BufferedInputStream(new FileInputStream(resource));
 
-        } catch (Exception e) {
-            out.println(makeHeader("404 Not Found", filename));
+            byte[] buffer = new byte[256];
+            int nbRead;
+            while ((nbRead = reader.read(buffer)) != -1) {
+                out.write(buffer, 0, nbRead);
+            }
+            reader.close();
             out.flush();
-            System.out.println(e);
+        } catch (Exception e) {
+            try {
+                out.write(makeHeader("500 Internal Error", filename).getBytes());
+                out.flush();
+                System.out.println(e);
+            } catch (Exception e2) {
+                System.out.println(e2);
+            }
         }
-        out.flush();
     }
 
     /**
      * POST request.
      *
-     * @param out out stream
+     * @param in       input stream
+     * @param out      output stream
      * @param filename file to post
      */
-    public void httpPost(PrintWriter out, String filename) {
-        System.out.println("post");
-    }
-
-    /**
-     * HEAD request.
-     *
-     * @param out out stream
-     */
-    public void httpHead(PrintWriter out) {
-        out.println(makeHeader("200 OK", null));
-        out.flush();
-    }
-
-    /**
-     * PUT request.
-     *
-     * @param in in stream
-     * @param out out stream
-     * @param filename file to put
-     */
-    public void httpPut(BufferedInputStream in, PrintWriter out, String filename) {
+    public void httpPost(BufferedInputStream in, BufferedOutputStream out, String filename) {
         try {
-            File resource = new File(filename.replace("?=", ""));
+            File resource = new File(filename);
             boolean fileExisted = resource.exists();
-            BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(resource));
+
+            BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(resource, fileExisted));
 
             byte[] buffer = new byte[256];
-            while(in.available() > 0) {
+            while (in.available() > 0) {
                 int nbRead = in.read(buffer);
                 fileOut.write(buffer, 0, nbRead);
             }
             fileOut.flush();
             fileOut.close();
 
-            if(fileExisted) {
-                out.println(makeHeader("204 No Content", filename));
+            if (fileExisted) {
+                out.write(makeHeader("200 OK", filename).getBytes());
             } else {
-                out.println(makeHeader("201 Created", filename));
+                out.write(makeHeader("201 Created", filename).getBytes());
             }
             out.flush();
         } catch (Exception e) {
-            System.out.println(e);
+            try {
+                out.write(makeHeader("500 Internal Error", filename).getBytes());
+                out.flush();
+                System.out.println(e);
+            } catch (Exception e2) {
+                System.out.println(e2);
+            }
+        }
+    }
+
+    /**
+     * HEAD request.
+     *
+     * @param out output stream
+     */
+    public void httpHead(BufferedOutputStream out) {
+        try {
+            out.write(makeHeader("200 OK", null).getBytes());
+            out.flush();
+        } catch (Exception e) {
+            try {
+                out.write(makeHeader("500 Internal Error", null).getBytes());
+                out.flush();
+                System.out.println(e);
+            } catch (Exception e2) {
+                System.out.println(e2);
+            }
+        }
+    }
+
+    /**
+     * PUT request.
+     *
+     * @param in       input stream
+     * @param out      output stream
+     * @param filename file to put
+     */
+    public void httpPut(BufferedInputStream in, BufferedOutputStream out, String filename) {
+        try {
+            File resource = new File(filename);
+            boolean fileExisted = resource.exists();
+
+            BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(resource));
+
+            byte[] buffer = new byte[256];
+            while (in.available() > 0) {
+                int nbRead = in.read(buffer);
+                fileOut.write(buffer, 0, nbRead);
+            }
+            fileOut.flush();
+            fileOut.close();
+
+            if (fileExisted) {
+                out.write(makeHeader("204 No Content", filename).getBytes());
+            } else {
+                out.write(makeHeader("201 Created", filename).getBytes());
+            }
+            out.flush();
+        } catch (Exception e) {
+            try {
+                out.write(makeHeader("500 Internal Error", filename).getBytes());
+                out.flush();
+                System.out.println(e);
+            } catch (Exception e2) {
+                System.out.println(e2);
+            }
         }
     }
 
     /**
      * DELETE request.
      *
-     * @param out out stream
+     * @param out      output stream
      * @param filename file to delete
      */
-    public void httpDelete(PrintWriter out, String filename) {
+    public void httpDelete(BufferedOutputStream out, String filename) {
         try {
             File file = new File(filename.replace("?=", ""));
             if (file.delete()) {
-                out.println(makeHeader("200 OK", filename));
+                out.write(makeHeader("200 OK", filename).getBytes());
             } else {
-                out.println(makeHeader("404 Not Found", filename));
+                out.write(makeHeader("404 Not Found", filename).getBytes());
             }
             out.flush();
         } catch (Exception e) {
-            System.out.println(e);
-            out.println(makeHeader("500 Internal Error", filename));
-            out.flush();
+            try {
+                out.write(makeHeader("500 Internal Error", filename).getBytes());
+                out.flush();
+                System.out.println(e);
+            } catch (Exception e2) {
+                System.out.println(e2);
+            }
         }
     }
 
     /**
      * Response header.
      *
-     * @param status response status
+     * @param status   response status
+     * @param filename file name
      * @return header
      */
     protected String makeHeader(String status, String filename) {
         String header = "HTTP/1.0 " + status + "\r\n";
-        if(filename.endsWith(".html"))
-            header += "Content-Type: text/html\r\n";
-        else if(filename.endsWith(".jpg") || filename.endsWith(".jpeg"))
-            header += "Content-Type: image/jpg\r\n";
-        else if(filename.endsWith(".png"))
-            header += "Content-Type: image/png\r\n";
-        else if(filename.endsWith(".mp4"))
-            header += "Content-Type: video/mp4\r\n";
-        else if(filename.endsWith(".mp3"))
-            header += "Content-Type: audio/mp3\r\n";
-        else if(filename.endsWith(".css"))
-            header += "Content-Type: text/css\r\n";
-        else
-            header += "Content-Type: text/html\r\n";
+        if (filename != null) {
+            if (filename.endsWith(".jpg") || filename.endsWith(".jpeg"))
+                header += "Content-Type: image/jpg\r\n";
+            else if (filename.endsWith(".png"))
+                header += "Content-Type: image/png\r\n";
+            else if (filename.endsWith(".mp4"))
+                header += "Content-Type: video/mp4\r\n";
+            else if (filename.endsWith(".mp3"))
+                header += "Content-Type: audio/mp3\r\n";
+            else if (filename.endsWith(".css"))
+                header += "Content-Type: text/css\r\n";
+            else
+                header += "Content-Type: text/html\r\n";
+        }
         header += "Server: Bot\r\n";
         header += "\r\n";
         System.out.println("Header :" + header);
